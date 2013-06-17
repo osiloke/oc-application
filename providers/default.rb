@@ -87,11 +87,20 @@ def before_deploy
   end
 
   if new_resource.deploy_key
-    file "#{new_resource.path}/id_deploy" do
-      content new_resource.deploy_key
-      owner new_resource.owner
-      group new_resource.group
-      mode '0600'
+    if new_resource.deploy_key_raw
+      file "#{new_resource.path}/id_deploy" do
+        content ::File.read(new_resource.deploy_key)
+        owner new_resource.owner
+        group new_resource.group
+        mode '0600'
+      end
+    else
+      file "#{new_resource.path}/id_deploy" do
+        content new_resource.deploy_key
+        owner new_resource.owner
+        group new_resource.group
+        mode '0600'
+      end
     end
 
     template "#{new_resource.path}/deploy-ssh-wrapper" do
@@ -129,7 +138,7 @@ def run_deploy(force = false)
     group new_resource.group
     deploy_to new_resource.path
     ssh_wrapper "#{new_resource.path}/deploy-ssh-wrapper" if new_resource.deploy_key
-    shallow_clone true
+    shallow_clone new_resource.shallow_clone
     rollback_on_error new_resource.rollback_on_error
     all_environments = ([new_resource.environment]+new_resource.sub_resources.map{|res| res.environment}).inject({}){|acc, val| acc.merge(val)}
     environment all_environments
@@ -157,9 +166,10 @@ def run_deploy(force = false)
         end
       end
     end
-    purge_before_symlink new_resource.purge_before_symlink
-    create_dirs_before_symlink new_resource.create_dirs_before_symlink
-    symlinks new_resource.symlinks
+    purge_before_symlink (new_resource.purge_before_symlink + new_resource.sub_resources.map(&:purge_before_symlink)).flatten
+    create_dirs_before_symlink (new_resource.create_dirs_before_symlink + new_resource.sub_resources.map(&:create_dirs_before_symlink)).flatten
+    all_symlinks = [new_resource.symlinks]+new_resource.sub_resources.map{|res| res.symlinks}
+    symlinks all_symlinks.inject({}){|acc, val| acc.merge(val)}
     all_symlinks_before_migrate = [new_resource.symlink_before_migrate]+new_resource.sub_resources.map{|res| res.symlink_before_migrate}
     symlink_before_migrate all_symlinks_before_migrate.inject({}){|acc, val| acc.merge(val)}
     before_migrate do
